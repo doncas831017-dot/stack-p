@@ -230,7 +230,9 @@ function listen(){
     setSub(finalText + interim, true);
   };
   rec.onstart = () => { if (myGen === gen) setSub('듣는 중… 말씀해 보세요'); };
-  rec.onspeechstart = () => { if (myGen === gen) setSub('…'); };
+  rec.onaudiostart = () => { if (myGen === gen) setSub('마이크 열림… 말씀해 보세요'); };
+  rec.onsoundstart = () => { if (myGen === gen) setSub('소리 감지됨…'); };
+  rec.onspeechstart = () => { if (myGen === gen) setSub('말 인식 중…'); };
   rec.onerror = e => { lastErr = e.error || ''; };
   rec.onend = () => {
     if (myGen !== gen || !active) return;
@@ -300,8 +302,6 @@ document.addEventListener('click', e => {
   if (active) { stopAll(); return; }
   active = true; gen++; emptyCount = 0; setSub('');
   keepAwake();
-  // 사용자 터치 안에서 음성 합성 잠금 해제
-  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch(err){}
   listen();
 });
 setMode('idle');
