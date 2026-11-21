@@ -37,6 +37,8 @@
   <label>모델</label>
   <input id="model" placeholder="gemini-flash-latest">
   <small>모델 이름이 바뀌어 오류가 나면 여기만 고치면 돼요. 예: gemini-2.5-flash</small>
+  <label>내 지역 (날씨 등에 사용)</label>
+  <input id="place" placeholder="예: 서울 강남구">
   <label>성격 / 지시문</label>
   <textarea id="persona"></textarea>
   <label>말하기 속도 <span id="rv"></span></label>
@@ -57,7 +59,7 @@
 (function(){
 'use strict';
 const DEFAULT_PERSONA = '너는 책상 위에 사는 작은 로봇 친구 "스택챈"이야. 친근한 존댓말로 한두 문장만 짧게 대답해. 이모지, 마크다운, 목록은 쓰지 마. 답변 맨 앞에 지금 감정을 [neutral] [happy] [sad] [surprised] [angry] 중 하나로 붙여.';
-const DEFAULTS = {key:'', model:'gemini-flash-latest', persona:DEFAULT_PERSONA, rate:1.05, voice:'', pitch:1.1};
+const DEFAULTS = {key:'', model:'gemini-flash-latest', persona:DEFAULT_PERSONA, rate:1.05, voice:'', pitch:1.1, place:''};
 const $ = s => document.querySelector(s);
 
 // ---------- 설정 ----------
@@ -73,7 +75,7 @@ function fillVoices(){
   list.forEach(v => { const o = document.createElement('option'); o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')'; sel.appendChild(o); });
   sel.value = cfg.voice || '';
 }
-function fillPanel(){ $('#key').value=cfg.key; $('#model').value=cfg.model; $('#persona').value=cfg.persona; $('#rate').value=cfg.rate; $('#rv').textContent=cfg.rate; $('#pitch').value=cfg.pitch; $('#pv').textContent=cfg.pitch; fillVoices(); }
+function fillPanel(){ $('#key').value=cfg.key; $('#model').value=cfg.model; $('#persona').value=cfg.persona; $('#rate').value=cfg.rate; $('#rv').textContent=cfg.rate; $('#pitch').value=cfg.pitch; $('#pv').textContent=cfg.pitch; $('#place').value=cfg.place||''; fillVoices(); }
 $('#rate').oninput = e => $('#rv').textContent = e.target.value;
 $('#pitch').oninput = e => $('#pv').textContent = e.target.value;
 $('#test').onclick = () => {
@@ -90,6 +92,7 @@ $('#save').onclick = () => {
   cfg.rate = parseFloat($('#rate').value) || 1;
   cfg.pitch = parseFloat($('#pitch').value) || 1.1;
   cfg.voice = $('#voice').value;
+  cfg.place = $('#place').value.trim();
   saveCfg(); $('#panel').classList.remove('on');
 };
 $('#reset').onclick = () => { const k = $('#key').value; cfg = Object.assign({}, DEFAULTS, {key:k.trim()}); fillPanel(); };
@@ -283,7 +286,11 @@ async function ask(text){
       method:'POST',
       headers:{'Content-Type':'application/json','x-goog-api-key':cfg.key},
       body: JSON.stringify({
-        systemInstruction:{parts:[{text:cfg.persona}]},
+        systemInstruction:{parts:[{text: cfg.persona
+          + '\n현재 시각: ' + new Date().toLocaleString('ko-KR')
+          + (cfg.place ? '\n사용자 지역: ' + cfg.place : '')
+          + '\n날씨, 뉴스, 시세처럼 최신 정보가 필요한 질문은 검색해서 답해.'}]},
+        tools: [{google_search: {}}],
         contents: history
       })
     });
