@@ -39,6 +39,8 @@
   <small>모델 이름이 바뀌어 오류가 나면 여기만 고치면 돼요. 예: gemini-2.5-flash</small>
   <label>내 지역 (날씨 등에 사용)</label>
   <input id="place" placeholder="예: 서울 강남구">
+  <label style="display:flex;align-items:center;gap:8px"><input id="search" type="checkbox" style="width:auto"> 인터넷 검색 사용 (날씨·뉴스)</label>
+  <small>검색 한도를 넘으면 자동으로 검색 없이 답해요. 한도 문제가 계속되면 꺼 두세요.</small>
   <label>성격 / 지시문</label>
   <textarea id="persona"></textarea>
   <label>말하기 속도 <span id="rv"></span></label>
@@ -59,7 +61,7 @@
 (function(){
 'use strict';
 const DEFAULT_PERSONA = '너는 책상 위에 사는 작은 로봇 친구 "스택챈"이야. 친근한 존댓말로 한두 문장만 짧게 대답해. 이모지, 마크다운, 목록은 쓰지 마. 답변 맨 앞에 지금 감정을 [neutral] [happy] [sad] [surprised] [angry] 중 하나로 붙여.';
-const DEFAULTS = {key:'', model:'gemini-flash-latest', persona:DEFAULT_PERSONA, rate:1.05, voice:'', pitch:1.1, place:''};
+const DEFAULTS = {key:'', model:'gemini-flash-latest', persona:DEFAULT_PERSONA, rate:1.05, voice:'', pitch:1.1, place:'', search:true};
 const $ = s => document.querySelector(s);
 
 // ---------- 설정 ----------
@@ -75,7 +77,7 @@ function fillVoices(){
   list.forEach(v => { const o = document.createElement('option'); o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')'; sel.appendChild(o); });
   sel.value = cfg.voice || '';
 }
-function fillPanel(){ $('#key').value=cfg.key; $('#model').value=cfg.model; $('#persona').value=cfg.persona; $('#rate').value=cfg.rate; $('#rv').textContent=cfg.rate; $('#pitch').value=cfg.pitch; $('#pv').textContent=cfg.pitch; $('#place').value=cfg.place||''; fillVoices(); }
+function fillPanel(){ $('#key').value=cfg.key; $('#model').value=cfg.model; $('#persona').value=cfg.persona; $('#rate').value=cfg.rate; $('#rv').textContent=cfg.rate; $('#pitch').value=cfg.pitch; $('#pv').textContent=cfg.pitch; $('#place').value=cfg.place||''; $('#search').checked=cfg.search!==false; fillVoices(); }
 $('#rate').oninput = e => $('#rv').textContent = e.target.value;
 $('#pitch').oninput = e => $('#pv').textContent = e.target.value;
 $('#test').onclick = () => {
@@ -93,6 +95,7 @@ $('#save').onclick = () => {
   cfg.pitch = parseFloat($('#pitch').value) || 1.1;
   cfg.voice = $('#voice').value;
   cfg.place = $('#place').value.trim();
+  cfg.search = $('#search').checked;
   saveCfg(); $('#panel').classList.remove('on');
 };
 $('#reset').onclick = () => { const k = $('#key').value; cfg = Object.assign({}, DEFAULTS, {key:k.trim()}); fillPanel(); };
@@ -282,19 +285,26 @@ async function ask(text){
   history.push({role:'user', parts:[{text}]});
   if (history.length > 16) history = history.slice(-16);
   try {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(cfg.model) + ':generateContent', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-goog-api-key':cfg.key},
-      body: JSON.stringify({
+    const callGemini = async (useSearch) => {
+      const body = {
         systemInstruction:{parts:[{text: cfg.persona
           + '\n현재 시각: ' + new Date().toLocaleString('ko-KR')
           + (cfg.place ? '\n사용자 지역: ' + cfg.place : '')
-          + '\n날씨, 뉴스, 시세처럼 최신 정보가 필요한 질문은 검색해서 답해.'}]},
-        tools: [{google_search: {}}],
+          + (useSearch ? '\n날씨, 뉴스, 시세처럼 최신 정보가 필요한 질문은 검색해서 답해.'
+                       : '\n지금은 인터넷 검색을 쓸 수 없어. 최신 정보는 확인할 수 없다고 솔직하게 말해.')}]},
         contents: history
-      })
-    });
-    const data = await res.json();
+      };
+      if (useSearch) body.tools = [{google_search: {}}];
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(cfg.model) + ':generateContent', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-goog-api-key':cfg.key},
+        body: JSON.stringify(body)
+      });
+      return {res: r, data: await r.json()};
+    };
+    let out = await callGemini(cfg.search !== false);
+    if (!out.res.ok && out.res.status === 429 && cfg.search !== false) out = await callGemini(false);
+    const res = out.res, data = out.data;
     if (myGen !== gen) return;
     if (!res.ok) throw new Error((data.error && data.error.message) || ('HTTP ' + res.status));
     let reply = (((data.candidates||[])[0]||{}).content||{}).parts;
