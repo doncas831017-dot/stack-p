@@ -76,7 +76,7 @@ let mode = 'idle';          // idle | listening | thinking | speaking
 let emotion = 'neutral';    // neutral | happy | sad | surprised | angry
 let active = false;         // 대화 루프 켜짐 여부
 let history = [];
-let rec = null, wakeLock = null, gen = 0;
+let rec = null, wakeLock = null, gen = 0, emptyCount = 0;
 
 function setSub(text, me){ const el=$('#sub'); el.textContent=text||''; el.className = me ? 'me' : ''; }
 function setMode(m){ mode = m; $('#hint').style.display = active ? 'none' : 'block'; }
@@ -229,11 +229,15 @@ function listen(){
     }
     setSub(finalText + interim, true);
   };
+  rec.onstart = () => { if (myGen === gen) setSub('듣는 중… 말씀해 보세요'); };
+  rec.onspeechstart = () => { if (myGen === gen) setSub('…'); };
   rec.onerror = e => { lastErr = e.error || ''; };
   rec.onend = () => {
     if (myGen !== gen || !active) return;
-    if (/not-allowed|service-not-allowed/.test(lastErr)) { fail('마이크 권한이 필요해요. 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.'); return; }
-    if (finalText.trim()) ask(finalText.trim());
+    if (/not-allowed|service-not-allowed/.test(lastErr)) { fail('마이크 권한 또는 음성 인식 서비스가 막혀 있어요. (오류: ' + lastErr + ')'); return; }
+    if (/network|audio-capture|language-not-supported/.test(lastErr)) { fail('음성 인식 오류: ' + lastErr); return; }
+    if (finalText.trim()) { emptyCount = 0; ask(finalText.trim()); }
+    else if (++emptyCount >= 4) { fail('목소리가 안 들려요 (' + (lastErr || '결과 없음') + '). 화면을 터치해서 다시 시작해 주세요.'); }
     else setTimeout(listen, 250);
   };
   try { setMode('listening'); rec.start(); } catch(e){ setTimeout(listen, 500); }
@@ -294,7 +298,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#panel') || e.target.closest('#gear')) return;
   if (!cfg.key) { fillPanel(); $('#panel').classList.add('on'); return; }
   if (active) { stopAll(); return; }
-  active = true; gen++; setSub('');
+  active = true; gen++; emptyCount = 0; setSub('');
   keepAwake();
   // 사용자 터치 안에서 음성 합성 잠금 해제
   try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch(err){}
