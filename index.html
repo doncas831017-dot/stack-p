@@ -41,6 +41,12 @@
   <textarea id="persona"></textarea>
   <label>말하기 속도 <span id="rv"></span></label>
   <input id="rate" type="range" min="0.7" max="1.5" step="0.05">
+  <label>목소리 높낮이 <span id="pv"></span></label>
+  <input id="pitch" type="range" min="0.6" max="1.6" step="0.05">
+  <label>목소리 선택</label>
+  <select id="voice" style="width:100%;box-sizing:border-box;background:#161616;color:#eee;border:1px solid #333;border-radius:8px;padding:10px;font-size:16px"></select>
+  <small>목록에는 폰에 설치된 한국어 음성만 나와요. 바꾼 뒤 미리듣기로 확인해 보세요.</small>
+  <div class="row"><button id="test">미리듣기</button></div>
   <div class="row">
     <button id="reset">기본값</button>
     <button id="save" class="main">저장</button>
@@ -51,21 +57,39 @@
 (function(){
 'use strict';
 const DEFAULT_PERSONA = '너는 책상 위에 사는 작은 로봇 친구 "스택챈"이야. 친근한 존댓말로 한두 문장만 짧게 대답해. 이모지, 마크다운, 목록은 쓰지 마. 답변 맨 앞에 지금 감정을 [neutral] [happy] [sad] [surprised] [angry] 중 하나로 붙여.';
-const DEFAULTS = {key:'', model:'gemini-flash-latest', persona:DEFAULT_PERSONA, rate:1.05};
+const DEFAULTS = {key:'', model:'gemini-flash-latest', persona:DEFAULT_PERSONA, rate:1.05, voice:'', pitch:1.1};
 const $ = s => document.querySelector(s);
 
 // ---------- 설정 ----------
 let cfg = Object.assign({}, DEFAULTS);
 try { const s = JSON.parse(localStorage.getItem('scp_cfg')||'null'); if (s) cfg = Object.assign(cfg, s); } catch(e){}
 function saveCfg(){ try { localStorage.setItem('scp_cfg', JSON.stringify(cfg)); } catch(e){} }
-function fillPanel(){ $('#key').value=cfg.key; $('#model').value=cfg.model; $('#persona').value=cfg.persona; $('#rate').value=cfg.rate; $('#rv').textContent=cfg.rate; }
+function fillVoices(){
+  const sel = $('#voice');
+  if (!sel || !('speechSynthesis' in window)) return;
+  const list = speechSynthesis.getVoices().filter(v => /^ko/i.test(v.lang));
+  sel.textContent = '';
+  const auto = document.createElement('option'); auto.value = ''; auto.textContent = '자동'; sel.appendChild(auto);
+  list.forEach(v => { const o = document.createElement('option'); o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')'; sel.appendChild(o); });
+  sel.value = cfg.voice || '';
+}
+function fillPanel(){ $('#key').value=cfg.key; $('#model').value=cfg.model; $('#persona').value=cfg.persona; $('#rate').value=cfg.rate; $('#rv').textContent=cfg.rate; $('#pitch').value=cfg.pitch; $('#pv').textContent=cfg.pitch; fillVoices(); }
 $('#rate').oninput = e => $('#rv').textContent = e.target.value;
+$('#pitch').oninput = e => $('#pv').textContent = e.target.value;
+$('#test').onclick = () => {
+  cfg.voice = $('#voice').value;
+  cfg.pitch = parseFloat($('#pitch').value) || 1.1;
+  cfg.rate = parseFloat($('#rate').value) || 1;
+  speak('안녕하세요, 저는 스택챈이에요. 이 목소리 어때요?', () => setMode('idle'));
+};
 $('#gear').onclick = e => { e.stopPropagation(); stopAll(); fillPanel(); $('#panel').classList.add('on'); };
 $('#save').onclick = () => {
   cfg.key = $('#key').value.trim();
   cfg.model = $('#model').value.trim() || DEFAULTS.model;
   cfg.persona = $('#persona').value.trim() || DEFAULT_PERSONA;
   cfg.rate = parseFloat($('#rate').value) || 1;
+  cfg.pitch = parseFloat($('#pitch').value) || 1.1;
+  cfg.voice = $('#voice').value;
   saveCfg(); $('#panel').classList.remove('on');
 };
 $('#reset').onclick = () => { const k = $('#key').value; cfg = Object.assign({}, DEFAULTS, {key:k.trim()}); fillPanel(); };
@@ -191,8 +215,11 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // ---------- 음성 합성 ----------
 let voices = [];
 function loadVoices(){ voices = speechSynthesis.getVoices(); }
-if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-function koVoice(){ return voices.find(v => /^ko/i.test(v.lang)) || null; }
+if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = () => { loadVoices(); fillVoices(); }; }
+function koVoice(){
+  const ko = voices.filter(v => /^ko/i.test(v.lang));
+  return (cfg.voice && ko.find(v => v.name === cfg.voice)) || ko[0] || null;
+}
 
 function speak(text, done){
   if (!('speechSynthesis' in window)) { done && done(); return; }
@@ -203,7 +230,7 @@ function speak(text, done){
   setMode('speaking');
   parts.forEach((p, i) => {
     const u = new SpeechSynthesisUtterance(p);
-    u.lang = 'ko-KR'; u.rate = cfg.rate; u.pitch = 1.1;
+    u.lang = 'ko-KR'; u.rate = cfg.rate; u.pitch = cfg.pitch;
     const v = koVoice(); if (v) u.voice = v;
     if (i === parts.length-1) {
       u.onend = u.onerror = () => { if (myGen===gen) done && done(); };
